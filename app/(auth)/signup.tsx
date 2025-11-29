@@ -1,4 +1,4 @@
-import { auth } from "@/FirebaseConfig";
+import { auth, storage } from "@/FirebaseConfig";
 import {signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile} from "firebase/auth";
 import React, { useState } from "react";
 import {
@@ -13,6 +13,7 @@ import LinkText from "@/components/LinkText";
 import {HelperText, Icon, TextInput as PaperInput} from "react-native-paper";
 import Animated, {FadeIn, FadeOut} from "react-native-reanimated";
 import {useRouter} from "expo-router";
+import {getDownloadURL, ref} from "@firebase/storage";
 
 const secondary = "#3893fa";
 
@@ -72,14 +73,18 @@ export default function Index() {
         if (validate()) {
             console.log("Sign up!");
             try {
+                const defaultAvatarRef = ref(storage, 'avatar/default_profile')
+                const defaultAvatarUrl = await getDownloadURL(defaultAvatarRef)
                 const newUserCred = await createUserWithEmailAndPassword(auth, email, password);
+
                 await updateProfile(newUserCred.user, {
                     displayName: `New_User`,
-                    photoURL: require('@/assets/images/default_profile.png'),
+                    photoURL: defaultAvatarUrl
                 });
                 router.replace('/verify');
             }
             catch (error: any) {
+                console.log(error);
                 switch (error.code) {
                     case 'auth/email-already-in-use':
                         setSignupError('Email is already in use. Please enter a different email.');

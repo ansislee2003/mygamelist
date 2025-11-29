@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { auth } from "@/FirebaseConfig";
+import {id} from "ci-info";
 
 const api = axios.create({
     baseURL: "https://api-idspf7h7kq-uc.a.run.app", // replace with your backend

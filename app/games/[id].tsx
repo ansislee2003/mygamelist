@@ -5,13 +5,19 @@ import {Image} from "expo-image";
 import StarIcon from "@/assets/icons/star.svg";
 import Animated from "react-native-reanimated";
 import api from "@/api"
+import {IconButton, Menu, Modal, Portal} from "react-native-paper";
 
 const GameDetails = () => {
     const { id } = useLocalSearchParams();
 
     const [game, setGame] = useState([]);
+    const [savedGame, setSavedGame] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+
+    const [modalVisible, setModalVisible] = useState(false);
+    const showModal = () => setModalVisible(true);
+    const hideModal = () => setModalVisible(false);
 
     useEffect(() => {
         api.post('/getGameById', {"gameID": id},
@@ -39,6 +45,24 @@ const GameDetails = () => {
                 resizeMode="cover"
             >
             <View className="flex-1" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+                <Portal>
+                    <Modal
+                        contentContainerStyle={{
+                            alignSelf: "center",
+                            width: "80%",
+                            backgroundColor: '#37404c',
+                            padding: 20
+                        }}
+                        visible={modalVisible}
+                        onDismiss={hideModal}
+                    >
+                        <Text className="text-primary text-lg">Testing</Text>
+                        <Text className="text-primary text-lg font-medium mt-4">Rating:</Text>
+                        <Menu>
+
+                        </Menu>
+                    </Modal>
+                </Portal>
                 <ScrollView>
                     <Animated.Image
                         className="w-[300px] h-[300px]"
@@ -48,7 +72,19 @@ const GameDetails = () => {
                     />
 
                     <View className="py-3.5 px-3.5">
-                        <Text className="text-primary text-xl font-medium mb-1">{game.name}</Text>
+                        <View className="flex-row justify-between">
+                            <Text className="text-primary text-xl font-medium mb-1 flex-1">{game.name || "-"}</Text>
+                            <IconButton
+                                icon={savedGame ? "bookmark" : "bookmark-outline"}
+                                size={30}
+                                style={{margin: 0, padding: 0, width: 38, height: 38}}
+                                onPress={() => {
+                                    if (!savedGame) {
+                                        showModal();
+                                    }
+                                }}
+                            />
+                        </View>
                         <Text className="text-primary mb-1">
                             {game.first_release_date ? new Date(game.first_release_date * 1000).toLocaleDateString()
                             : '-'}

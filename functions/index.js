@@ -37,14 +37,17 @@ const app = express();
 const axios = require('axios');
 const apicache = require('apicache');
 const cache = apicache.middleware;
+const {ref, getDownloadURL} = require("@firebase/storage");
 
 // firestore
 const admin = require('firebase-admin');
 const serviceAccount = require('./serviceAccountKey.json');
 admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
+    credential: admin.credential.cert(serviceAccount);
+    storageBucket: "gs://mygamelist-3c79d.firebasestorage.app";
 });
 const db = admin.firestore();
+const bucket = admin.storage().bucket();
 
 const { defineString } = require('firebase-functions/params');
 const IGDB_CLIENT_ID = defineString('IGDB_CLIENT_ID');
@@ -53,20 +56,25 @@ let IGDB_AUTHORIZATION = null;
 let IGDB_HEADERS = null;
 
 const buildIGDBHeaders = async (isUpdate = false) => {
-    if (isUpdate || !IGDB_HEADERS) {
-        const response = await db.collection('oauth').doc('igdb').get();
-        IGDB_AUTHORIZATION = response.data()?.IGDB_AUTHORIZATION ?? null;
+    try {
+        if (isUpdate || !IGDB_HEADERS) {
+            const response = await db.collection('oauth').doc('igdb').get();
+            IGDB_AUTHORIZATION = response.data()?.IGDB_AUTHORIZATION ?? null;
 
-        IGDB_HEADERS = {
-            'Client-ID': IGDB_CLIENT_ID.value(),
-            'Authorization': IGDB_AUTHORIZATION,
-            'Accept': 'application/json',
-            'Content-Type': 'text/plain'
-        };
+            IGDB_HEADERS = {
+                'Client-ID': IGDB_CLIENT_ID.value(),
+                'Authorization': IGDB_AUTHORIZATION,
+                'Accept': 'application/json',
+                'Content-Type': 'text/plain'
+            };
 
-        return IGDB_HEADERS;
+            return IGDB_HEADERS;
+        }
+        else { return IGDB_HEADERS; }
     }
-    else { return IGDB_HEADERS; }
+    catch (error) {
+        console.log("Failed to build headers", error);
+    }
 }
 
 const qs = require('qs');
@@ -148,7 +156,7 @@ app.use(async (req, res, next) => {
     }
 })
 
-app.get('/hello', (req, res) => {
+app.get('/hello', async (req, res) => {
     res.send('Hello from Firebase!');
 });
 
@@ -184,7 +192,7 @@ app.post('/getTrendingGames', cache('3 hours'), async (req, res) => {
         res.send(response.data);
     })
     .catch(error => {
-        console.error("/getTrendingGames:", error.config.Authorization);
+        console.error("/getTrendingGames:", error.message);
         return res.json({error: error.message});
     })
 })
@@ -233,6 +241,7 @@ app.post('/getTopNewGames', cache('3 hours'), async (req, res) => {
         { headers: igdb_headers }
     )
     .then(response  => {
+        console.log("TOP NEW GAMES", response.data)
         return res.json(response.data);
     })
     .catch(error => {
@@ -305,6 +314,21 @@ app.post('/getGameById', async (req, res) => {
         console.error("/getGameById:", error.message);
         return res.json({error: error.message});
     })
+})
+
+app.post('/user/uploadAvatarByUID', async (req, res) => {
+    const { uid } = req.body;
+    const filename = uid ? `avatar/${uid}.png` : 'avatar/default_profile';
+
+    try {
+        const [url] = await bucket
+            .file(filename)
+        return res.json(url);
+    }
+    catch (error) {
+        console.error("/getUserAvatarByUID:", error.message);
+        return res.json({error: error.message});
+    }
 })
 
 exports.api = functions.https.onRequest(app);
