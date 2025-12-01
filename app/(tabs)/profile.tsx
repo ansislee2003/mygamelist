@@ -8,13 +8,16 @@ import {router} from "expo-router";
 import {Icon} from "react-native-paper/src";
 import * as ImagePicker from 'expo-image-picker';
 import api from "@/api";
+import {Snackbar} from "react-native-paper";
+import {fileTypeFromBlob, fileTypeFromBuffer} from "file-type";
 
 export default function Index() {
-     const [user, setUser] = useState<User | null>(null);
-     const [editOverlay, setEditOverlay] = useState(false);
-     const [error, setError] = useState("");
+    const [user, setUser] = useState<User | null>(null);
+    const [editOverlay, setEditOverlay] = useState(false);
+    const [error, setError] = useState("");
+    const [showError, setShowError] = useState(false);
 
-     useEffect(() => {
+    useEffect(() => {
         onAuthStateChanged(auth, () => {
             if (auth.currentUser) {
                 if (auth.currentUser.isAnonymous) {
@@ -25,8 +28,8 @@ export default function Index() {
         });
     }, []);
 
-     const updateAvatar = async () => {
-         const user = auth.currentUser;
+    const updateAvatar = async () => {
+        const user = auth.currentUser;
         if (user && !user.isAnonymous) {
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images'],
@@ -38,26 +41,43 @@ export default function Index() {
             if (!result.canceled && result.assets) {
                 const asset = result.assets[0];
                 const image = await fetch(asset.uri);
-                const blob = await image.blob();
+                const buffer = await image.arrayBuffer(); // works in RN fetch
+                const uint8 = new Uint8Array(buffer);
+                const type = await fileTypeFromBuffer(uint8);
 
-                if (blob && (blob.type == "image/jpeg" || blob.type == "image/png")) {
+                console.log("image loaded");
+                if (type?.mime === "image/jpeg" || type?.mime === "image/png") {
                     const formData = new FormData();
-                    formData.append("image", blob, `${user.uid}`);
+                    formData.append("image", {
+                        uri: asset.uri,
+                        type: type.mime,
+                        name: `${user.uid}.${type.ext}`,
+                    } as any);
 
-                    api.post('user/uploadAvatarByUID', formData)
-                        .then((res) => {
-                            setUser(res.data);
+                    for (const [key, value] of formData.entries()) {
+                        console.log(key, value);
+                    }
+
+                    api.post('/user/uploadAvatarByUID', formData)
+                        .then(async (res) => {
+                            console.log(res.data);
+                            await user.reload();
+                            setUser(auth.currentUser);
+                            console.log("reload user", user.photoURL)
                         })
                         .catch((err) => {
-                            console.log(err);
+                            console.log(err.message);
+                            setError(err.message);
+                            setShowError(true);
                         })
                 }
             }
         }
         else {
             setError("Please sign in to customise your profile");
+            setShowError(true);
         }
-     }
+    }
 
     return (
         <ImageBackground
@@ -75,9 +95,9 @@ export default function Index() {
                                 </View>
                             )}
                             <TouchableOpacity style={{zIndex:1}} activeOpacity={0.6} onPressIn={() => setEditOverlay(true)}
-                                              onPressOut={() => {
+                                              onPressOut={async () => {
+                                                  await updateAvatar();
                                                   setEditOverlay(false);
-                                                  updateAvatar();
                                               }}
                             >
                                 <Image
@@ -110,6 +130,14 @@ export default function Index() {
                         route="/verify"
                     />
                 </ScrollView>
+
+                <Snackbar
+                    visible={showError}
+                    onDismiss={() => setShowError(false)}
+                    duration={3000}
+                >
+                    {error}
+                </Snackbar>
             </View>
         </ImageBackground>
     );

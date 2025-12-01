@@ -37,14 +37,21 @@ const app = express();
 const axios = require('axios');
 const apicache = require('apicache');
 const cache = apicache.middleware;
+const { Buffer } = require('buffer');
 const {ref, getDownloadURL} = require("@firebase/storage");
+const qs = require('qs');
+const {fileTypeFromBuffer} = require("file-type");
+const { v4: uuidv4 } = require('uuid');
+
+// formData parser
+const Busboy = require('busboy');
 
 // firestore
 const admin = require('firebase-admin');
 const serviceAccount = require('./serviceAccountKey.json');
 admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount);
-    storageBucket: "gs://mygamelist-3c79d.firebasestorage.app";
+    credential: admin.credential.cert(serviceAccount),
+    storageBucket: "mygamelist-3c79d.firebasestorage.app",
 });
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
@@ -76,8 +83,6 @@ const buildIGDBHeaders = async (isUpdate = false) => {
         console.log("Failed to build headers", error);
     }
 }
-
-const qs = require('qs');
 
 const api = axios.create({
     timeout: 5000,
@@ -317,18 +322,84 @@ app.post('/getGameById', async (req, res) => {
 })
 
 app.post('/user/uploadAvatarByUID', async (req, res) => {
-    const { uid } = req.body;
-    const filename = uid ? `avatar/${uid}.png` : 'avatar/default_profile';
+    // if (req.user.isAnonymous || !req.user.emailVerified) {
+    if (req.user.isAnonymous) {
+        return res.status(401).send({ error: "Custom avatar is only accessible for email verified accounts." });
+    }
 
-    try {
-        const [url] = await bucket
-            .file(filename)
-        return res.json(url);
-    }
-    catch (error) {
-        console.error("/getUserAvatarByUID:", error.message);
-        return res.json({error: error.message});
-    }
+    const busboy = Busboy({ headers: req.headers });
+    const filepath = `avatar/${req.user.uid}`;
+
+    console.log(req.user.uid);
+
+    let uploadData = null;
+
+    busboy.on('file', (fieldName, file, info) => {
+        const { filename, encoding, mimetype } = info;
+        const chunks = [];
+
+        file.on('data', chunk => {
+            chunks.push(chunk);
+        });
+
+        file.on('end', () => {
+            uploadData = {
+                fileBuffer: Buffer.concat(chunks),
+                mimetype: mimetype,
+                filename: filepath
+            };
+        });
+    });
+
+    busboy.on('finish', async () => {
+        try {
+            if (!uploadData || !uploadData.fileBuffer) {
+                return res.status(400).send({ error: "No file data received or processed." });
+            }
+
+            if (uploadData.fileBuffer.length === 0) {
+                return res.status(400).send({ error: "Received an empty file." });
+            }
+
+            const detectedFileType = await fileTypeFromBuffer(uploadData.fileBuffer);
+            if (detectedFileType?.mime === "image/jpeg" || detectedFileType?.mime === "image/png") {
+                if (uploadData.fileBuffer.length > 2 * 1024 * 1024) {
+                    return res.status(400).json({ error: "File size larger than 2MB" });
+                }
+
+                // upload to fireback storage with uid as filename
+                const token = uuidv4();
+                const image = bucket.file(filepath);
+                await image.save(uploadData.fileBuffer, {
+                    contentType: detectedFileType.mime,
+                    metadata: {
+                        metadata: {
+                            firebaseStorageDownloadTokens: token
+                        }
+                    }
+                });
+                console.log("/uploadAvatarByUID uploaded to fire storage");
+
+                // update firebase auth with new photoURL
+                const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filepath)}?alt=media&token=${token}`;
+                await admin.auth().updateUser(req.user.uid, {
+                    photoURL: url
+                })
+                console.log("Check uploaded url", url)
+
+                return res.status(200).send({ url: url });
+            }
+            else {
+                return res.status(400).json({ error: "Invalid file type" });
+            }
+        }
+        catch (error) {
+            console.error(`/uploadAvatarByUID:`, error);
+            return res.status(500).send({ error: "Failed to upload avatar." });
+        }
+    });
+
+    busboy.end(req.rawBody);
 })
 
 exports.api = functions.https.onRequest(app);
