@@ -154,7 +154,8 @@ app.use(async (req, res, next) => {
     }
 
     try {
-        req.user = await admin.auth().verifyIdToken(idToken);
+        const decodedUser = await admin.auth().verifyIdToken(idToken);
+        req.user = await admin.auth().getUser(decodedUser.uid);
         next();
     } catch (error) {
         return res.status(401).send('Not authorized: Invalid token');
@@ -328,9 +329,7 @@ app.post('/user/uploadAvatarByUID', async (req, res) => {
     }
 
     const busboy = Busboy({ headers: req.headers });
-    const filepath = `avatar/${req.user.uid}`;
-
-    console.log(req.user.uid);
+    const filepath = `avatar/${req.user.uid}-${new Date().toISOString().replace(/:/g, '-')}`;
 
     let uploadData = null;
 
@@ -378,16 +377,24 @@ app.post('/user/uploadAvatarByUID', async (req, res) => {
                         }
                     }
                 });
-                console.log("/uploadAvatarByUID uploaded to fire storage");
 
                 // update firebase auth with new photoURL
                 const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filepath)}?alt=media&token=${token}`;
                 await admin.auth().updateUser(req.user.uid, {
                     photoURL: url
                 })
-                console.log("Check uploaded url", url)
+                console.log("Check new uploaded url", url)
 
-                return res.status(200).send({ url: url });
+                // update avatar successful
+                res.status(200).send({ url: url });
+
+                // delete old avatar from firebase storage
+                let match = req.user.photoURL.match(/\/o\/([^?]+)/) || null;
+                const oldPath = match ? decodeURIComponent(match[1]) : null;
+                bucket.file(oldPath).delete()
+                    .catch(error => {
+                        console.log("Failed to delete file at:", oldPath)
+                    })
             }
             else {
                 return res.status(400).json({ error: "Invalid file type" });

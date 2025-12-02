@@ -1,4 +1,4 @@
-import {ImageBackground, ScrollView, Text, TouchableOpacity, View} from "react-native";
+import {ActivityIndicator, ImageBackground, ScrollView, Text, TouchableOpacity, View} from "react-native";
 import {Image} from "expo-image";
 import LinkText from "@/components/LinkText";
 import React, {useEffect, useState} from "react";
@@ -8,17 +8,19 @@ import {router} from "expo-router";
 import {Icon} from "react-native-paper/src";
 import * as ImagePicker from 'expo-image-picker';
 import api from "@/api";
-import {Snackbar} from "react-native-paper";
+import {Avatar, Snackbar} from "react-native-paper";
 import {fileTypeFromBlob, fileTypeFromBuffer} from "file-type";
 
 export default function Index() {
     const [user, setUser] = useState<User | null>(null);
+    const [avatarVisible, setAvatarVisible] = useState(true);
+    const [avatarLoaded, setAvatarLoaded] = useState(false);
     const [editOverlay, setEditOverlay] = useState(false);
     const [error, setError] = useState("");
     const [showError, setShowError] = useState(false);
 
     useEffect(() => {
-        onAuthStateChanged(auth, () => {
+        onAuthStateChanged(auth, async () => {
             if (auth.currentUser) {
                 if (auth.currentUser.isAnonymous) {
                     router.replace("/login");
@@ -27,6 +29,10 @@ export default function Index() {
             }
         });
     }, []);
+
+    useEffect(() => {
+        console.log("User age changed:", user?.photoURL);
+    }, [user?.photoURL]);
 
     const updateAvatar = async () => {
         const user = auth.currentUser;
@@ -45,7 +51,6 @@ export default function Index() {
                 const uint8 = new Uint8Array(buffer);
                 const type = await fileTypeFromBuffer(uint8);
 
-                console.log("image loaded");
                 if (type?.mime === "image/jpeg" || type?.mime === "image/png") {
                     const formData = new FormData();
                     formData.append("image", {
@@ -54,21 +59,18 @@ export default function Index() {
                         name: `${user.uid}.${type.ext}`,
                     } as any);
 
-                    for (const [key, value] of formData.entries()) {
-                        console.log(key, value);
-                    }
-
                     api.post('/user/uploadAvatarByUID', formData)
                         .then(async (res) => {
-                            console.log(res.data);
+                            setAvatarVisible(false);        // unmount to update image
                             await user.reload();
                             setUser(auth.currentUser);
-                            console.log("reload user", user.photoURL)
+                            setAvatarVisible(true);
                         })
                         .catch((err) => {
                             console.log(err.message);
                             setError(err.message);
                             setShowError(true);
+                            setAvatarVisible(true);
                         })
                 }
             }
@@ -100,11 +102,16 @@ export default function Index() {
                                                   setEditOverlay(false);
                                               }}
                             >
-                                <Image
-                                    source={user?.photoURL}
-                                    style={{ width: 90, height: 90 }}
-                                    contentFit="cover"
-                                />
+                                {avatarVisible ? (
+                                    <Image
+                                        source={ user?.photoURL }
+                                        style={{ width: 90, height: 90, opacity: avatarLoaded ? 0 : 1 }}
+                                        contentFit="cover"
+                                        transition={500}
+                                    />
+                                ) : (
+                                    <ActivityIndicator size="small" color="#AAAAAA" />
+                                )}
                             </TouchableOpacity>
                         </View>
 
